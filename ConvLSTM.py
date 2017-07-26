@@ -53,7 +53,7 @@ class ConvLSTMCell(nn.Module):
 
 		return hidden, cell
 
-class model(nn.Module):
+class ConvLSTM(nn.Module):
 	
 	def __init__(self, ConvLSTM_channel, sequence_length, kernel_size = 3 , padding = 1):
 		super(model,self).__init__()
@@ -77,7 +77,9 @@ class model(nn.Module):
 				)
 		self.sequence_length = sequence_length
 
-	def forward(self, input_):
+	def forward(self, input_, sequence_length = None):
+		if sequence_length is not None:
+			self.sequence_length = sequence_length
 		state = None
 		deco_state = None
 		for i in range(self.sequence_length):

@@ -52,13 +52,13 @@ def get_gaussian_gt_3d(pose_3d,sigma, grid_point = 64,pad_space = 1, threshold =
 
 class Pose_Dataset(data.Dataset):
 
-	def __init__(self, xml_folder, chunck_size, player_list, total_folder, sigma, epoch,img_h, img_w,\
-					  reverse_player = True, joint_num = 18, grid_point = 64):
+	def __init__(self, xml_folder, chunck_size, player_list, sigma, epoch\
+					  reverse_player = True, joint_num = 18, grid_point = 64, train_ed = False, mode = 'train'):
 		self.xml_folder = xml_folder
 		self.counter = 0
 		self.player_list = player_list
 		self.folder_counter = 0
-		self.total_folder = total_folder
+		self.total_folder = len(player_list)
 		self.current_folder_file_num = 0
 		self.chunck_size = chunck_size
 		self.total_data_num = 0
@@ -67,10 +67,10 @@ class Pose_Dataset(data.Dataset):
 		self.do_reverse_player = False
 		self.joint_num = joint_num
 		self.sigma = sigma
-		self.h = img_h
-		self.w = img_w
 		self.epoch = epoch
 		self.grid_point = grid_point
+		self.train_ed = train_ed
+		self.mode = mode
 		for i in range(total_folder):
 			player_1_id = self.player_list[i][0]
 			player_2_id = self.player_list[i][1]
@@ -98,18 +98,30 @@ class Pose_Dataset(data.Dataset):
 			else:
 				self.folder_counter += 1
 
-#		pose_p1 = np.zeros((self.chunck_size,self.joint_num,3))
-		pose = np.zeros((self.chunck_size, self.h, self.w, self.joint_num))
-#		pose_p1 = np.zeros((32,32,32))
-		for i in range(self.chunck_size):
-			p1,p2 = xml_parsing(os.path.join(self.xml_folder, self.current_folder_name, \
-					'Skeleton','Skeleton ' + str(self.counter + i)+'.xml'),self.player_1_id,self.player_2_id)
-			pose[i,:,:,:] = get_gaussian_gt(get_pose_numpy_array(p1, get_2d = True), self.sigma, self.h, self.w).astype(np.float32)
-#			p2 = get_pose_numpy_array(p2, get_2d = True)
-#			pose_p2[i,:,:,:] = get_gaussian_gt(p2,self.sigma,self.h,self.w)
+		if self.train_ed:
+			pose = np.zeros((self.chunck_size, self.grid_point, self.grid_point, self.joint_num))
+			for i in range(self.chunck_size):
+				p1,p2 = xml_parsing(os.path.join(self.xml_folder, self.current_folder_name, \
+						'Skeleton','Skeleton ' + str(self.counter + i)+'.xml'),self.player_1_id,self.player_2_id)
+				pose_array_2d = get_pose_numpy_array(p1, get_2d = True)
+				pose[i,:,:,:] = get_gaussian_gt(pose_array_2d, self.sigma, self.grid_point, self.grid_point).astype(np.float32)
+			self.counter += 1
+			return pose.astype(np.float32),pose[::-1,:,:,:].astype(np.float32)
+		else:
+			pose_1 = np.zeros((self.chunck_size, self.grid_point, self.grid_point, self.joint_num))
+			pose_2 = np.zeros((self.chunck_size, self.grid_point, self.grid_point, self.joint_num))
+			for i in range(self.chunck_size):
+				p1,p2 = xml_parsing(os.path.join(self.xml_folder, self.current_folder_name, \
+						'Skeleton','Skeleton ' + str(self.counter + i)+'.xml'),self.player_1_id,self.player_2_id)
+				p1 = get_pose_numpy_array(p1, get_2d = True)
+				pose_1[i,:,:,:] = get_gaussian_gt(p1, self.sigma, self.grid_point, self.grid_point).astype(np.float32)
+				pose_2[i,:,:,:] = get_gaussian_gt(get_pose_numpy_array(p2, get_2d = True), self.sigma, self.grid_point, self.grid_point).astype(np.float32)
 
-		self.counter += 1
-		return pose.astype(np.float32),pose[::-1,:,:,:].astype(np.float32)
+			self.counter += 1
+			if self.mode == 'test':
+				p1_coor = p1
+				return pose_1.astype(np.float32), pose_2.astype(np.float32), p1_coor.astype(np.float32)
+			return pose_1.astype(np.float32), pose_2.astype(np.float32)
 
 	def __len__(self):
 		if self.reverse_player:
