@@ -2,12 +2,13 @@ import numpy as np
 from scipy.stats import multivariate_normal
 import torch.utils.data as data
 import glob,os
-from xml_utils import *
+from xml_utils import xml_parsing,get_pose_numpy_array
 
-def get_gaussian_gt(pose_2d,sigma,img_h,img_w, l_pad = 1.8, r_pad = 1.8, h_pad = 5):
+def get_gaussian_gt(pose_2d,sigma,img_h,img_w, l_pad = 1, r_pad = 1, h_pad = 2):
 	y1 = np.min(pose_2d[:,1])
-	x1 = -l_pad
-	x2 = r_pad
+	x_center = (pose_2d[11,0]+pose_2d[11,1])
+	x1 = x_center-l_pad
+	x2 = x_center+r_pad
 	y2 = y1 + h_pad
 	x_line = np.linspace(x1,x2,img_w, endpoint = True)
 	y_line = np.linspace(y1,y2,img_h, endpoint = True)
@@ -20,13 +21,15 @@ def get_gaussian_gt(pose_2d,sigma,img_h,img_w, l_pad = 1.8, r_pad = 1.8, h_pad =
 	for i in range(joint_num):
 		pdf = multivariate_normal(pose_2d[i,:], [[sigma, 0], [0, sigma]])
 		gt_map[:,:,i] = np.reshape(pdf.pdf(pos),[img_h,img_w])
+		gt_map[:,:,i] = gt_map[:,:,i]/np.max(gt_map[:,:,i])
 	return gt_map
 
-def get_gaussian_gt_3d(pose_3d,sigma, grid_point = 32,pad_space = 1):
+def get_gaussian_gt_3d(pose_3d,sigma, grid_point = 64,pad_space = 1, threshold = 0.1):
 	z1 = np.min(pose_3d[:,2])
-	z2 = y1 + pad_space * 2
-	x1 = -pad_space
-	x2 = pad_space
+	z2 = z1 + pad_space * 2
+	x_center = (pose_3d[11,0] + pose_3d[14,0])/2
+	x1 = x_center - pad_space
+	x2 = x_center + pad_space
 	y1 = -pad_space
 	y2 = pad_space
 
@@ -34,21 +37,23 @@ def get_gaussian_gt_3d(pose_3d,sigma, grid_point = 32,pad_space = 1):
 	y_line = np.linspace(y1,y2,grid_point, endpoint = True)
 	z_line = np.linspace(z1,z2,grid_point, endpoint = True)
 	x_mesh,y_mesh,z_mesh = np.meshgrid(x_line,y_line,z_line)
-	pos = np.empty(x_mesh.shape+ (3,))
-	pos[:,:,0] = x_mesh
-	pos[:,:,1] = y_mesh
-	pos[:,:,2] = z_mesh
+	pos = np.empty((x_mesh.size,3))
+	pos[:,0] = np.reshape(x_mesh,[-1])
+	pos[:,1] = np.reshape(y_mesh,[-1])
+	pos[:,2] = np.reshape(z_mesh,[-1])
 	joint_num = pose_3d.shape[0]
-	gt_map = np.zeros((grid_point,grid_point,grid_point))
+	gt_map = np.zeros((joint_num,grid_point,grid_point,grid_point))
 
 	for i in range(joint_num):
 		pdf = multivariate_normal(pose_3d[i,:], [[sigma, 0,0], [0,sigma,0], [0, 0, sigma]])
-		gt_map += np.reshape(pdf.pdf(pos),[grid_point,grid_point,grid_point])
+		gt_map[i,:,:,:] = np.reshape(pdf.pdf(pos),[grid_point,grid_point,grid_point])
+		gt_map[i,:,:,:] = gt_map[i,:,:,:]/np.max(gt_map[i,:,:,:])
 	return gt_map
 
 class Pose_Dataset(data.Dataset):
 
-	def __init__(self, xml_folder, chunck_size, player_list, total_folder, sigma, img_h, img_w, epoch, reverse_player = True, joint_num = 18):
+	def __init__(self, xml_folder, chunck_size, player_list, total_folder, sigma, epoch,img_h, img_w,\
+					  reverse_player = True, joint_num = 18, grid_point = 64):
 		self.xml_folder = xml_folder
 		self.counter = 0
 		self.player_list = player_list
@@ -65,6 +70,7 @@ class Pose_Dataset(data.Dataset):
 		self.h = img_h
 		self.w = img_w
 		self.epoch = epoch
+		self.grid_point = grid_point
 		for i in range(total_folder):
 			player_1_id = self.player_list[i][0]
 			player_2_id = self.player_list[i][1]
@@ -92,18 +98,18 @@ class Pose_Dataset(data.Dataset):
 			else:
 				self.folder_counter += 1
 
-		pose_p1 = np.zeros((self.chunck_size,self.joint_num,3))
-		pose_p2 = np.zeros((self.chunck_size, self.h, self.w, self.joint_num))
-		
+#		pose_p1 = np.zeros((self.chunck_size,self.joint_num,3))
+		pose = np.zeros((self.chunck_size, self.h, self.w, self.joint_num))
+#		pose_p1 = np.zeros((32,32,32))
 		for i in range(self.chunck_size):
 			p1,p2 = xml_parsing(os.path.join(self.xml_folder, self.current_folder_name, \
 					'Skeleton','Skeleton ' + str(self.counter + i)+'.xml'),self.player_1_id,self.player_2_id)
-			pose_p1[i,:,:] = get_pose_numpy_array(p1)
-			p2 = get_pose_numpy_array(p2, get_2d = True)
-			pose_p2[i,:,:,:] = get_gaussian_gt(p2,self.sigma,self.h,self.w)
+			pose[i,:,:,:] = get_gaussian_gt(get_pose_numpy_array(p1, get_2d = True), self.sigma, self.h, self.w).astype(np.float32)
+#			p2 = get_pose_numpy_array(p2, get_2d = True)
+#			pose_p2[i,:,:,:] = get_gaussian_gt(p2,self.sigma,self.h,self.w)
 
 		self.counter += 1
-		return pose_p2.astype(np.float32),pose_p2[::-1,:,:,:].astype(np.float32)
+		return pose.astype(np.float32),pose[::-1,:,:,:].astype(np.float32)
 
 	def __len__(self):
 		if self.reverse_player:

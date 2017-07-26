@@ -5,6 +5,8 @@ import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from pylab import *
+from scipy.stats import multivariate_normal
 
 def xml_parsing(file_name, p1_id, p2_id, total_joint = 18):
 
@@ -94,6 +96,9 @@ def plot_3d(pose_3d_dict):
 	mid_x = (x.max()+x.min()) * 0.5
 	mid_y = (y.max()+y.min()) * 0.5
 	mid_z = (z.max()+z.min()) * 0.5
+	ax.set_xlabel('X Label')
+	ax.set_ylabel('Y Label')
+	ax.set_zlabel('Z Label')
 	ax.set_xlim(mid_x - max_range, mid_x + max_range)
 	ax.set_ylim(mid_y - max_range, mid_y + max_range)
 	ax.set_zlim(mid_z - max_range, mid_z + max_range)
@@ -108,9 +113,90 @@ def get_pose_numpy_array(pose_3d_dict, get_2d = False):
 		pose_3d[counter,:] = pose_3d_dict[key][:3]
 		counter += 1
 	if get_2d:
-		pose_3d = pose_3d[:,[0,2]]
+		pose_3d = pose_3d[:,[1,2]]
 	return pose_3d
-	
+
+def get_gaussian_gt_3d(pose_3d,sigma, grid_point = 64,pad_space = 1):
+	z1 = np.min(pose_3d[:,2])
+	z2 = z1 + 2*pad_space
+	x1 = (pose_3d[11,0] + pose_3d[14,0])/2 -pad_space
+	x2 = (pose_3d[11,0] + pose_3d[14,0])/2 + pad_space
+	y1 = -pad_space
+	y2 = pad_space
+	coor = [x1,x2,y1,y2,z1,z2]
+	x_line = np.linspace(x1,x2,grid_point, endpoint = True)
+	y_line = np.linspace(y1,y2,grid_point, endpoint = True)
+	z_line = np.linspace(z1,z2,grid_point, endpoint = True)
+	x_mesh,y_mesh,z_mesh = np.meshgrid(x_line,y_line,z_line)
+	pos = np.empty((x_mesh.size,3))
+	pos[:,0] = np.reshape(x_mesh,[-1])
+	pos[:,1] = np.reshape(y_mesh,[-1])
+	pos[:,2] = np.reshape(z_mesh,[-1])
+	joint_num = pose_3d.shape[0]
+	gt_map = np.zeros((grid_point,grid_point,grid_point))
+
+	for i in range(joint_num):
+		pdf = multivariate_normal(pose_3d[i,:], [[sigma, 0,0], [0,sigma,0], [0, 0, sigma]])
+		gt_map += np.reshape(pdf.pdf(pos),[grid_point,grid_point,grid_point])
+	return gt_map/np.max(gt_map),coor
+
+def visual_3d_gt_pose(s, threshold, coor, grid_point = 32):
+	fig = plt.figure()
+	ax = fig.gca(projection='3d')
+	x_line = np.linspace(coor[0],coor[1],grid_point, endpoint = True)
+	y_line = np.linspace(coor[2],coor[3],grid_point, endpoint = True)
+	z_line = np.linspace(coor[4],coor[5],grid_point, endpoint = True)
+	x_mesh,y_mesh,z_mesh = np.meshgrid(x_line,y_line,z_line)
+	s = np.reshape(s,[-1])
+	x_mesh = np.reshape(x_mesh,[-1])
+	y_mesh = np.reshape(y_mesh,[-1])
+	z_mesh = np.reshape(z_mesh,[-1])
+	colmap = cm.ScalarMappable(cmap=cm.hsv)
+	colmap.set_array(s)
+	yg = ax.scatter(x_mesh, y_mesh, z_mesh, c=cm.hsv(s/max(s)), marker='o')
+	cb = fig.colorbar(colmap)
+	plt.show()
+
+def get_gaussian_gt(pose_2d,sigma,img_h,img_w, l_pad = 1, r_pad = 1, h_pad = 2):
+	y1 = np.min(pose_2d[:,1])
+	x1 = -l_pad
+	x2 = r_pad
+	y2 = y1 + h_pad
+	coor = [x1,x2,y1,y2]
+	x_line = np.linspace(x1,x2,img_w, endpoint = True)
+	y_line = np.linspace(y1,y2,img_h, endpoint = True)
+	x_mesh,y_mesh = np.meshgrid(x_line,y_line)
+	pos = np.empty(x_mesh.shape+ (2,))
+	pos[:,:,0] = x_mesh
+	pos[:,:,1] = y_mesh
+	joint_num = pose_2d.shape[0]
+	gt_map = np.zeros((img_h,img_w))
+	for i in range(joint_num):
+		pdf = multivariate_normal(pose_2d[i,:], [[sigma, 0], [0, sigma]])
+		gt_map += np.reshape(pdf.pdf(pos),[img_h,img_w])
+	return gt_map/np.max(gt_map),coor
+
+def visual_2d_gt_pose(s, coor, grid_point = 32):
+	fig = plt.figure()
+	x_line = np.linspace(coor[0],coor[1],grid_point, endpoint = True)
+	y_line = np.linspace(coor[2],coor[3],grid_point, endpoint = True)
+	x_mesh,y_mesh = np.meshgrid(x_line,y_line)
+	s = np.reshape(s,[-1])
+	x_mesh = np.reshape(x_mesh,[-1])
+	y_mesh = np.reshape(y_mesh,[-1])
+	colmap = cm.ScalarMappable(cmap=cm.hsv)
+	colmap.set_array(s)
+	yg = plt.scatter(x_mesh, y_mesh, c=cm.hsv(s/max(s)), marker='o')
+	cb = fig.colorbar(colmap)
+	plt.show()
+
 if __name__ == '__main__':
+	grid_point = 64
+	pad_space = 1
 	p1,p2 = xml_parsing('Skeleton 0.xml', 5,6)
 	plot_3d(p1)
+	# p1_2d = get_pose_numpy_array(p1, get_2d = True)
+	# p1_2d,coor = get_gaussian_gt(p1_2d,0.01,grid_point,grid_point)
+	# visual_2d_gt_pose(p1_2d,coor,grid_point)
+	# pdf,coor= get_gaussian_gt_3d(p1_3d,0.001, grid_point = grid_point, pad_space = pad_space)
+	# visual_3d_gt_pose(pdf,0.1, coor,grid_point = grid_point)

@@ -62,16 +62,19 @@ class model(nn.Module):
 		self.cnn_encoder = nn.Sequential(
 				nn.Conv2d(18, 64, 3, padding=1),
 				nn.ReLU(inplace=True),
-				nn.Conv2d(64, 64, 3, padding=1),
+				nn.Conv2d(64, 128, 3, padding=1),
 				nn.ReLU(inplace=True),
-				nn.Conv2d(64, 64, 3, padding=1))
+				nn.Conv2d(128, 128, 3, padding=1),
+				nn.Sigmoid())
 
 		self.cnn_decoder = nn.Sequential(
-				nn.Conv2d(64, 64, 3, padding=1),
+				nn.Conv2d(128, 128, 3, padding=1),
 				nn.ReLU(inplace=True),
-				nn.Conv2d(64, 64, 3, padding=1),
+				nn.Conv2d(128, 64, 3, padding=1),
 				nn.ReLU(inplace=True),
-				nn.Conv2d(64, 18, 3, padding=1))
+				nn.Conv2d(64, 18, 3, padding=1),
+				nn.Sigmoid()
+				)
 		self.sequence_length = sequence_length
 
 	def forward(self, input_):
@@ -87,5 +90,3 @@ class model(nn.Module):
 			output.append(self.cnn_decoder(deco_state[1]))
 		return torch.stack(output)
 
-class encoder_decoder_3d(nn.Module):
-	def __init__(self, )
